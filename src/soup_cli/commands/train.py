@@ -1594,9 +1594,21 @@ def train(
         raise
 
     # Report
+    # #899 — a trainer wrapper sets loss_has_delta=False when initial/final
+    # are not two independent per-step observations (short run, fewer total
+    # steps than logging_steps): printing them as an arrow in that case reads
+    # as a real before/after delta that the run's log_history cannot support.
+    # Trainers that don't report the flag (default True) keep prior behavior.
+    if result.get("loss_has_delta", True):
+        loss_line = f"Loss: [bold]{result['initial_loss']:.4f} -> {result['final_loss']:.4f}[/]"
+    else:
+        loss_line = (
+            f"Loss: [bold]{result['initial_loss']:.4f}[/] "
+            "(single value; fewer steps than logging_steps, so no per-step history)"
+        )
     console.print(
         Panel(
-            f"Loss: [bold]{result['initial_loss']:.4f} -> {result['final_loss']:.4f}[/]\n"
+            f"{loss_line}\n"
             f"Duration: [bold]{result['duration']}[/]\n"
             f"Output: [bold]{result['output_dir']}[/]\n"
             f"Run ID: [bold]{run_id}[/]\n\n"
