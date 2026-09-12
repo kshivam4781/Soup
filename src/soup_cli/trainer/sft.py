@@ -19,6 +19,7 @@ from soup_cli.utils.gpu import (
     resolve_base_load_dtype,
     resolve_device_map,
 )
+from soup_cli.utils.loss_summary import summarize_train_loss
 from soup_cli.utils.mixed_precision import align_trainable_dtype_for_fp16
 from soup_cli.utils.seeding import apply_training_seed, training_seed_kwargs
 
@@ -2001,15 +2002,16 @@ class SFTTrainerWrapper(StreamingSetupMixin):
 
         # Extract metrics
         logs = self.trainer.state.log_history
-        train_losses = [entry["loss"] for entry in logs if "loss" in entry]
+        loss_summary = summarize_train_loss(logs)
 
         hours = int(duration // 3600)
         minutes = int((duration % 3600) // 60)
         duration_str = f"{hours}h {minutes}m" if hours > 0 else f"{minutes}m"
 
         return {
-            "initial_loss": train_losses[0] if train_losses else 0,
-            "final_loss": train_losses[-1] if train_losses else 0,
+            "initial_loss": loss_summary.initial_loss,
+            "final_loss": loss_summary.final_loss,
+            "loss_has_delta": loss_summary.has_delta,
             "duration": duration_str,
             "duration_secs": duration,
             "output_dir": self._output_dir,
