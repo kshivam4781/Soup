@@ -299,6 +299,35 @@ def test_anthropic_failures_exit_nonzero(
     assert first_error in output
 
 
+def test_anthropic_failure_labels_real_endpoint_not_judge_base_url(
+    tmp_path, monkeypatch
+) -> None:
+    """#1340: ``--judge-base-url`` is ignored for the Anthropic backend (the
+    CLI help already says so), but the failure message used to name it
+    anyway, pointing a debugging user at a host that was never contacted.
+    It must instead name ``https://api.anthropic.com``."""
+    import httpx
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-test-value")
+    monkeypatch.setattr(
+        httpx, "post", lambda *_a, **_k: _AnthropicResponse(500)
+    )
+    bogus_base_url = "http://127.0.0.1:9"
+    result = _run_forge(
+        tmp_path,
+        monkeypatch,
+        "--judge-provider",
+        "anthropic",
+        "--judge-base-url",
+        bogus_base_url,
+    )
+    output = _terminal_text(result)
+
+    assert result.exit_code == 1, output
+    assert "https://api.anthropic.com" in output
+    assert bogus_base_url not in output
+
+
 def test_anthropic_partial_outage_keeps_successful_rows(tmp_path, monkeypatch) -> None:
     import httpx
 

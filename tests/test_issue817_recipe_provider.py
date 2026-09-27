@@ -551,3 +551,83 @@ def test_provider_failure_endpoint_label_omits_credentials_path_and_query() -> N
         )
         == "http://localhost:11434"
     )
+
+
+@pytest.mark.parametrize("base_url", [None, "http://127.0.0.1:9", "not a url"])
+def test_provider_failure_endpoint_label_ignores_base_url_for_anthropic(
+    base_url: "str | None",
+) -> None:
+    """#1340: Anthropic ignores ``base_url`` entirely, so the failure label
+    must always name the endpoint actually contacted, never the value the
+    caller passed (which may not even be a well-formed URL, since it is
+    never used to make a request)."""
+    from soup_cli.utils.recipe_run import _provider_endpoint_label
+
+    assert _provider_endpoint_label("anthropic", base_url) == "https://api.anthropic.com"
+
+
+def test_provider_failure_endpoint_label_still_shows_real_base_url_for_others() -> None:
+    """Control for #1340: ollama/vllm must keep showing the given base URL —
+    only anthropic's label is overridden."""
+    from soup_cli.utils.recipe_run import _provider_endpoint_label
+
+    assert (
+        _provider_endpoint_label("ollama", "http://localhost:11434")
+        == "http://localhost:11434"
+    )
+    assert (
+        _provider_endpoint_label("vllm", "http://localhost:8000")
+        == "http://localhost:8000"
+    )
+
+
+def test_recipe_cli_anthropic_failure_labels_real_endpoint_not_base_url(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """#1340: ``soup data recipe --provider anthropic --base-url ...`` must
+    name ``https://api.anthropic.com`` — the endpoint actually called — in
+    both the terminal message and ``.checkpoint.json``, not the ignored
+    ``--base-url`` value."""
+    import httpx
+
+    from soup_cli.cli import app
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-test-value")
+    monkeypatch.chdir(tmp_path)
+    recipe_path = _write_single_provider_recipe(tmp_path, kind="llm_text")
+    bogus_base_url = "http://127.0.0.1:9"
+
+    class _Response:
+        status_code = 500
+
+    monkeypatch.setattr(httpx, "post", lambda *_a, **_k: _Response())
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "data",
+            "recipe",
+            str(recipe_path),
+            "--execute",
+            "--output",
+            "out",
+            "--provider",
+            "anthropic",
+            "--base-url",
+            bogus_base_url,
+        ],
+    )
+
+    output = _terminal_text(result)
+    assert result.exit_code == 1, (output, repr(result.exception))
+    assert "all 2 provider calls failed" in output
+    assert "https://api.anthropic.com" in output
+    assert bogus_base_url not in output
+
+    checkpoint = json.loads((tmp_path / "out" / ".checkpoint.json").read_text())
+    assert checkpoint["status"] == "failed"
+    assert checkpoint["failed_node"] == "provider1"
+    assert "https://api.anthropic.com" in checkpoint["failed_reason"]
+    assert bogus_base_url not in checkpoint["failed_reason"]
+    assert not (tmp_path / "out" / "samp1.jsonl").exists()
