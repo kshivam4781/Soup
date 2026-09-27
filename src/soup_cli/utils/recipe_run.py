@@ -57,6 +57,16 @@ class _ProviderNodeResult:
 
 def _provider_endpoint_label(provider: Optional[str], base_url: Optional[str]) -> str:
     """Return a credential-free origin label for provider failure messages."""
+    if isinstance(provider, str) and provider.strip().lower() == "anthropic":
+        # The Anthropic judge ignores ``base_url`` entirely and always calls
+        # a fixed endpoint (``data_forge._ANTHROPIC_MESSAGES_URL``), so label
+        # failures by the endpoint actually contacted rather than whatever
+        # base_url the caller passed — otherwise a user debugging an
+        # Anthropic outage is pointed at a host that was never contacted
+        # (#1340).
+        from soup_cli.utils.data_forge import _ANTHROPIC_MESSAGES_URL
+
+        base_url = _ANTHROPIC_MESSAGES_URL
     if base_url is None:
         return f"{provider or 'provider'} default endpoint"
     try:
